@@ -109,8 +109,5 @@ if __name__ == '__main__':
         else:
             edit_sparse_checkout(sparse_checkout)
 
-        if args.pattern:
-            edit_sparse_checkout(sparse_checkout)
-
         if get_consent("Ok to checkout ({})?".format(os.getcwd())):
             checkout()
