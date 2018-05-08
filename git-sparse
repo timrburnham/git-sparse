@@ -14,20 +14,19 @@ def mkdir(path):
     except FileExistsError:
         pass
 
-def config_sparse(value=None):
+def config_sparse(value=False):
     if value:
         rc = sp.run(('git', 'config', 'core.sparseCheckout', value))
         rc.check_returncode()
-        config_sparse()
-    else:
-        rc = sp.run(('git', 'config', 'core.sparseCheckout'), stdout=sp.PIPE)
-        if rc.returncode: # non-zero
-            print("Sparse checkout not configured")
-        else:
-            status = rc.stdout.decode('utf-8').splitlines()[0]
-            print("Sparse checkout enabled: " + status)
 
-def create_branch(path):
+    rc = sp.run(('git', 'config', 'core.sparseCheckout'), stdout=sp.PIPE)
+    if rc.returncode: # non-zero
+        print("Sparse checkout not configured")
+    else:
+        status = rc.stdout.decode('utf-8').splitlines()[0]
+        print("Sparse checkout enabled: " + status)
+
+def add_worktree(path):
     rc = sp.run(('git', 'worktree', 'add', '--no-checkout', path))
     rc.check_returncode()
 
@@ -60,54 +59,75 @@ def checkout():
     rc = sp.run(('git', 'checkout'))
     rc.check_returncode()
 
-if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser(prog="git sparse")
-    parser.add_argument("path",
-                        nargs="?",
-                        default=os.getcwd(),
-                        help="worktree path (default $PWD)")
-    parser.add_argument("-p", "--pattern",
-                        help="file pattern to populate working directory")
-    parser.add_argument("-b", "--branch",
-                        action='store_true',
-                        help="create a new branch")
-    parser.add_argument("--config",
-                        action="store_true",
-                        help="check if sparse checkout is configured "
-                        "in this repository")
-    parser.add_argument("--config-enable",
-                        action="store_true",
-                        help="enable sparse checkout in this repository")
-    parser.add_argument("--config-disable",
-                        action="store_true",
-                        help="disable sparse checkout in this repository")
-    parser.add_argument("--version",
-                        action="version",
-                        version="%(prog)s 0.02")
-    args = parser.parse_args()
-
-    if args.config:
+def arg_config(args):
+    if args.enable:
+        config_sparse('true')
+    elif args.disable:
+        config_sparse('false')
+    else:
         config_sparse()
 
-    elif args.config_enable:
-        config_sparse('true')
+def arg_add(args):
+    add_worktree(args.path)
+    os.chdir(args.path) # switch to worktree
+    arg_edit(args)
 
-    elif args.config_disable:
-        config_sparse('false')
+def arg_edit(args):
+    git_dir = get_git_dir()
+    sparse_checkout = get_sparse_checkout(git_dir)
 
+    if args.pattern:
+        create_sparse_checkout(sparse_checkout, args.pattern)
     else:
-        if args.branch:
-            create_branch(args.path)
-
-        os.chdir(args.path) # switch to worktree
-        git_dir = get_git_dir()
-        sparse_checkout = get_sparse_checkout(git_dir)
-
-        if args.pattern:
-            create_sparse_checkout(sparse_checkout, args.pattern)
-        else:
+        if get_consent("OK to create file? ({})".format(sparse_checkout)):
             edit_sparse_checkout(sparse_checkout)
+        else:
+            return
 
-        if get_consent("Ok to checkout ({})?".format(os.getcwd())):
-            checkout()
+    if args.checkout or get_consent("OK to checkout repository? ({})" \
+                                    .format(os.getcwd())):
+        checkout()
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(prog="git sparsetree")
+    subparsers = parser.add_subparsers()
+
+    # config
+    parser_config = subparsers.add_parser('config',
+                                          help='configure sparse checkout '
+                                          'in this repository')
+    parser_config.add_argument("--enable",
+                               action="store_true",
+                               help="enable sparse checkout in this repository")
+    parser_config.add_argument("--disable",
+                               action="store_true",
+                               help="disable sparse checkout in this repository")
+    parser_config.set_defaults(func=arg_config)
+
+    # add
+    parser_add = subparsers.add_parser('add',
+                                       help='add sparse worktree')
+    parser_add.add_argument("path",
+                            help="path to create new worktree")
+    parser_add.add_argument("-p", "--pattern",
+                            help="file pattern to populate working directory")
+    parser_add.add_argument("--checkout",
+                            help="checkout without prompting")
+    parser_add.set_defaults(func=arg_add)
+
+    # edit
+    parser_edit = subparsers.add_parser('edit',
+                                        help='edit sparse checkout inclusions')
+    parser_edit.add_argument("-p", "--pattern",
+                             help="file pattern to populate working directory")
+    parser_edit.add_argument("--checkout",
+                             help="checkout without prompting")
+    parser_edit.set_defaults(func=arg_edit)
+
+    parser.add_argument("-v", "--version",
+                        action="version",
+                        version="%(prog)s 0.03")
+
+    args = parser.parse_args()
+    args.func(args)
