@@ -57,7 +57,10 @@ def get_git_dir():
 
 def checkout():
     rc = sp.run(('git', 'checkout'))
-    rc.check_returncode()
+    if rc.returncode: # non-zero
+        print("Check if specified pattern exists and retry:\n"
+              "  cd {}\n"
+              "  git sparsetree edit".format(os.getcwd()))
 
 def arg_config(args):
     if args.enable:
@@ -110,20 +113,20 @@ if __name__ == '__main__':
                                        help='add sparse worktree')
     parser_add.add_argument("path",
                             help="path to create new worktree")
-    parser_add.add_argument("-p", "--pattern",
-                            help="file pattern to populate working directory")
-    parser_add.add_argument("--checkout",
-                            help="checkout without prompting")
     parser_add.set_defaults(func=arg_add)
 
     # edit
     parser_edit = subparsers.add_parser('edit',
                                         help='edit sparse checkout inclusions')
-    parser_edit.add_argument("-p", "--pattern",
-                             help="file pattern to populate working directory")
-    parser_edit.add_argument("--checkout",
-                             help="checkout without prompting")
     parser_edit.set_defaults(func=arg_edit)
+
+    # shared args
+    for p in (parser_add, parser_edit):
+        p.add_argument("-p", "--pattern",
+                       help="file pattern to populate working directory")
+        p.add_argument("--checkout",
+                       action="store_true",
+                       help="checkout without prompting")
 
     parser.add_argument("-v", "--version",
                         action="version",
