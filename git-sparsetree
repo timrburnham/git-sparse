@@ -27,8 +27,25 @@ def config_sparse(value=False):
         print("Sparse checkout enabled: " + status)
 
 def add_worktree(path):
-    rc = sp.run(('git', 'worktree', 'add', '--no-checkout', path))
+    rc = sp.run(('git', 'worktree', 'prune'))
     rc.check_returncode()
+
+    rc = sp.run(('git', 'worktree', 'add', '--no-checkout', path),
+                stdout=sp.PIPE, stderr=sp.STDOUT)
+    if rc.returncode: # non-zero
+        msg = rc.stdout.decode('utf-8')
+        print(msg)
+        if 'already exists' in msg:
+        # try adding existing branch
+            branch = os.path.basename(path)
+            print(f"Attempting to checkout existing branch {branch} "
+                  f"to {path} instead.\n")
+            rc = sp.run(('git', 'worktree', 'add', '--no-checkout',
+                        path, branch))
+            rc.check_returncode()
+        else:
+            print(rc.stdout)
+            rc.check_returncode()
 
 def get_sparse_checkout(git_dir):
     info_dir = os.path.join(git_dir, 'info')
@@ -62,7 +79,10 @@ def checkout():
               "  cd {}\n"
               "  git sparsetree edit".format(os.getcwd()))
 
-def arg_config(args):
+def arg_usage(parser, args):
+    parser.print_usage()
+
+def arg_config(parser, args):
     if args.enable:
         config_sparse('true')
     elif args.disable:
@@ -70,19 +90,20 @@ def arg_config(args):
     else:
         config_sparse()
 
-def arg_add(args):
+def arg_add(parser, args):
     add_worktree(args.path)
     os.chdir(args.path) # switch to worktree
-    arg_edit(args)
+    arg_edit(parser, args)
 
-def arg_edit(args):
+def arg_edit(parser, args):
     git_dir = get_git_dir()
     sparse_checkout = get_sparse_checkout(git_dir)
 
     if args.pattern:
         create_sparse_checkout(sparse_checkout, args.pattern)
     else:
-        if get_consent("OK to create file? ({})".format(sparse_checkout)):
+        if os.path.exists(sparse_checkout) or \
+           get_consent("OK to create file? ({})".format(sparse_checkout)):
             edit_sparse_checkout(sparse_checkout)
         else:
             return
@@ -94,6 +115,7 @@ def arg_edit(args):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(prog="git sparsetree")
+    parser.set_defaults(func=arg_usage)
     subparsers = parser.add_subparsers()
 
     # config
@@ -130,7 +152,7 @@ if __name__ == '__main__':
 
     parser.add_argument("-v", "--version",
                         action="version",
-                        version="%(prog)s 0.03")
-
+                        version="%(prog)s 0.04")
     args = parser.parse_args()
-    args.func(args)
+#    import pdb; pdb.set_trace()
+    args.func(parser, args)
